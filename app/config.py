@@ -9,5 +9,12 @@ class Settings:
     AUDIO_DIR = os.getenv("AUDIO_DIR", "/app/audio")
     ALLOWED_VOICES = {"aidar", "baya", "kseniya", "xenia", "eugene"}
     SILERO_LANGUAGE = "ru"
+    SILERO_DEFAULT_VOICE = os.getenv("SILERO_DEFAULT_VOICE", "aidar")
+
+    # Celery memory safety knobs.
+    CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "1"))
+    CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "20"))
+    CELERY_WORKER_MAX_MEMORY_PER_CHILD = int(os.getenv("CELERY_WORKER_MAX_MEMORY_PER_CHILD", "900000"))
+    CELERY_RESULT_EXPIRES_SECONDS = int(os.getenv("CELERY_RESULT_EXPIRES_SECONDS", "3600"))
 
 settings = Settings()

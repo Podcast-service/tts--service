@@ -11,9 +11,10 @@ import shutil
 
 logger = logging.getLogger(__name__)
 
-# Per-process storage for models (keyed by voice)
-_model_local = threading.local()
+# Per-process singleton model to avoid loading duplicated weights per voice.
+_tts_model = None
 _model_init_lock = threading.Lock()
+_model_use_lock = threading.Lock()
 _MODEL_LOCK_FILE = "/tmp/tts_model_init.lock"
 
 
@@ -60,36 +61,36 @@ def _release_model_init_file_lock(fd: int):
             os.remove(_MODEL_LOCK_FILE)
 
 
-def _load_model_for_voice(voice: str):
+def _load_model():
     model_id = SileroTTS.get_latest_model(settings.SILERO_LANGUAGE)
     return SileroTTS(
         model_id=model_id,
         language=settings.SILERO_LANGUAGE,
-        speaker=voice,
+        speaker=settings.SILERO_DEFAULT_VOICE,
         sample_rate=48000,
         device='cpu'
     )
 
 
-def _drop_cached_voice_model(voice: str):
-    if hasattr(_model_local, 'models') and voice in _model_local.models:
-        del _model_local.models[voice]
-        logger.warning(f"Dropped cached TTS model for voice '{voice}'")
+def _drop_cached_model():
+    global _tts_model
+    with _model_init_lock:
+        _tts_model = None
+    logger.warning("Dropped cached TTS model")
 
-def get_tts_model(voice: str):
-    """Returns SileroTTS model for the given voice, loads if needed."""
-    if not hasattr(_model_local, 'models'):
-        _model_local.models = {}
-    if voice not in _model_local.models:
+def get_tts_model():
+    """Returns singleton SileroTTS model for current worker process."""
+    global _tts_model
+    if _tts_model is None:
         with _model_init_lock:
-            if voice in _model_local.models:
-                return _model_local.models[voice]
+            if _tts_model is not None:
+                return _tts_model
 
-            logger.info(f"Loading Silero TTS model for voice '{voice}'...")
+            logger.info("Loading Silero TTS model...")
 
             lock_fd = _acquire_model_init_file_lock()
             try:
-                _model_local.models[voice] = _load_model_for_voice(voice)
+                _tts_model = _load_model()
             except Exception as model_error:
                 if _is_corrupted_torch_archive_error(model_error):
                     logger.warning(
@@ -97,14 +98,14 @@ def get_tts_model(voice: str):
                         "Clearing cache and retrying once..."
                     )
                     _clear_torch_cache()
-                    _model_local.models[voice] = _load_model_for_voice(voice)
+                    _tts_model = _load_model()
                 else:
                     raise
             finally:
                 _release_model_init_file_lock(lock_fd)
 
-            logger.info(f"Silero TTS model for voice '{voice}' loaded.")
-    return _model_local.models[voice]
+            logger.info("Silero TTS model loaded.")
+    return _tts_model
 
 
 def build_part_audio_path(parent_task_id: str, part_index: int) -> str:
@@ -150,22 +151,29 @@ def merge_wav_files(input_paths: list[str], output_path: str):
                 elif current_params != expected_params:
                     raise ValueError("Audio parts have incompatible WAV parameters")
 
-                destination.writeframes(source.readframes(source.getnframes()))
+                while True:
+                    # Stream by chunks to avoid loading long segments into RAM at once.
+                    chunk = source.readframes(8192)
+                    if not chunk:
+                        break
+                    destination.writeframes(chunk)
 
 
 def synthesize_part_to_path(text: str, voice: str, parent_task_id: str, part_index: int) -> str:
     audio_path = build_part_audio_path(parent_task_id, part_index)
 
     try:
-        tts_model = get_tts_model(voice)
-        tts_model.tts(text, audio_path)
+        tts_model = get_tts_model()
+        with _model_use_lock:
+            tts_model.speaker = voice
+            tts_model.tts(text, audio_path)
     except Exception as error:
         if _is_corrupted_torch_archive_error(error):
             logger.warning(
                 "Corrupted archive error during synthesis. "
                 "Dropping cached model and clearing torch cache before retry."
             )
-            _drop_cached_voice_model(voice)
+            _drop_cached_model()
             _clear_torch_cache()
         raise
 

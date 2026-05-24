@@ -1,6 +1,7 @@
 from app.celery_app import celery_app
 from app.config import settings
 from app.kafka_producer import send_event
+from app.s3_uploader import upload_audio_file
 from silero_tts.silero_tts import SileroTTS
 import os
 import time
@@ -108,12 +109,12 @@ def get_tts_model():
     return _tts_model
 
 
-def build_part_audio_path(parent_task_id: str, part_index: int) -> str:
-    return os.path.join(settings.AUDIO_DIR, f"{parent_task_id}_part_{part_index}.wav")
+def build_part_audio_path(id_podcast: str, part_index: int) -> str:
+    return os.path.join(settings.AUDIO_DIR, f"{id_podcast}_part_{part_index}.wav")
 
 
-def build_final_audio_path(task_id: str) -> str:
-    return os.path.join(settings.AUDIO_DIR, f"{task_id}.wav")
+def build_final_audio_path(id_podcast: str) -> str:
+    return os.path.join(settings.AUDIO_DIR, f"{id_podcast}.wav")
 
 
 def cleanup_audio_files(file_paths: list[str]):
@@ -159,8 +160,8 @@ def merge_wav_files(input_paths: list[str], output_path: str):
                     destination.writeframes(chunk)
 
 
-def synthesize_part_to_path(text: str, voice: str, parent_task_id: str, part_index: int) -> str:
-    audio_path = build_part_audio_path(parent_task_id, part_index)
+def synthesize_part_to_path(text: str, voice: str, id_podcast: str, part_index: int) -> str:
+    audio_path = build_part_audio_path(id_podcast, part_index)
 
     try:
         tts_model = get_tts_model()
@@ -180,60 +181,52 @@ def synthesize_part_to_path(text: str, voice: str, parent_task_id: str, part_ind
     return audio_path
 
 
-@celery_app.task(
-    bind=True,
-    name="generate_tts_part",
-    autoretry_for=(Exception,),
-    retry_kwargs={"max_retries": 3},
-    retry_backoff=True,
-    retry_jitter=True,
-)
-def generate_tts_part(self, text: str, voice: str, parent_task_id: str, part_index: int):
-    return synthesize_part_to_path(text, voice, parent_task_id, part_index)
-
-@celery_app.task(bind=True, name="generate_tts")
-def generate_tts(self, items: list[dict]):
-    task_id = self.request.id
-    audio_path = build_final_audio_path(task_id)
+@celery_app.task(name="generate_tts")
+def generate_tts(id_podcast: str, text_items: list[dict]):
+    audio_path = build_final_audio_path(id_podcast)
     os.makedirs(settings.AUDIO_DIR, exist_ok=True)
 
-    part_audio_paths = [build_part_audio_path(task_id, idx) for idx in range(len(items))]
+    part_audio_paths = [build_part_audio_path(id_podcast, idx) for idx in range(len(text_items))]
 
     try:
         generated_part_paths = []
-        for index, item in enumerate(items):
-            part_path = synthesize_part_to_path(item["text"], item["voice"], task_id, index)
+        for index, item in enumerate(text_items):
+            part_path = synthesize_part_to_path(item["text"], item["voice"], id_podcast, index)
             generated_part_paths.append(part_path)
 
         merge_wav_files(generated_part_paths, audio_path)
         cleanup_audio_files(generated_part_paths)
 
+        audio_size_file = os.path.getsize(audio_path)
+        audio_url_file = upload_audio_file(audio_path, id_podcast)
+        cleanup_audio_files([audio_path])
+
         send_event(
-            settings.KAFKA_TOPIC_COMPLETED,
-            key=task_id,
+            settings.KAFKA_TOPIC_MEDIA_UPLOADED,
+            key=id_podcast,
             event_data={
-                "task_id": task_id,
-                "status": "completed",
-                "items": items,
-                "file_url": f"/audio/{task_id}.wav",
-                "timestamp": time.time()
-            }
+                "id_podcast": id_podcast,
+                "audio_url_file": audio_url_file,
+                "audio_size_file": audio_size_file,
+                "timestamp": time.time(),
+                "add.transcipt": False,
+            },
         )
-        logger.info(f"Task {task_id} completed, audio saved to {audio_path}")
+        logger.info(f"Podcast {id_podcast} uploaded to {audio_url_file}")
 
     except Exception as e:
         cleanup_audio_files(part_audio_paths + [audio_path])
 
-        logger.exception(f"Task {task_id} failed: {e}")
+        logger.exception(f"Podcast {id_podcast} failed: {e}")
         send_event(
             settings.KAFKA_TOPIC_FAILED,
-            key=task_id,
+            key=id_podcast,
             event_data={
-                "task_id": task_id,
-                "status": "failed",
-                "items": items,
+                "id_podcast": id_podcast,
+                "text": text_items,
                 "error": str(e),
-                "timestamp": time.time()
-            }
+                "timestamp": time.time(),
+            },
         )
         raise
+    

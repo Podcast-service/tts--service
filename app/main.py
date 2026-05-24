@@ -1,10 +1,10 @@
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, Body
 from app.models import TTSRequest, TaskResponse
 from app.celery_app import celery_app
 from app.config import settings
 from app.kafka_producer import send_event
 import time
-import uuid
+import os
 
 app = FastAPI(title="TTS Service", version="1.0.0")
 
@@ -12,8 +12,8 @@ app = FastAPI(title="TTS Service", version="1.0.0")
 def startup_event():
     from app.kafka_producer import get_producer
     get_producer()
-    import os
     os.makedirs(settings.AUDIO_DIR, exist_ok=True)
+
 
 @app.post(
     "/api/tts/generate",
@@ -25,13 +25,13 @@ def startup_event():
             "content": {
                 "application/json": {
                     "example": {
-                        "task_id": "9f6e53b4-3c45-4f2a-9ad8-7a1ed98d2b4e",
-                        "status": "processing"
+                        "id_podcast": "9f6e53b4-3c45-4f2a-9ad8-7a1ed98d2b4e",
+                        "status": "processing",
                     }
                 }
-            }
+            },
         }
-    }
+    },
 )
 async def generate_tts(
     request: TTSRequest = Body(
@@ -40,62 +40,40 @@ async def generate_tts(
             "multi_voice": {
                 "summary": "Multiple segments with different voices",
                 "value": {
-                    "items": [
-                        {
-                            "text": "Hello! This is the first segment with Aidar voice.",
-                            "voice": "aidar"
-                        },
-                        {
-                            "text": "And this is the second segment with another voice.",
-                            "voice": "kseniya"
-                        }
-                    ]
-                }
+                    "id_podcast": "9f6e53b4-3c45-4f2a-9ad8-7a1ed98d2b4e",
+                    "text": [
+                        {"text": "Hello! This is the first segment with Aidar voice.", "voice": "aidar"},
+                        {"text": "And this is the second segment with another voice.", "voice": "kseniya"},
+                    ],
+                },
             }
-        }
+        },
     )
 ):
     """
-    Accepts multiple text/voice items, puts task in queue and returns task ID.
+    Accepts a podcast id and a list of text/voice segments,
+    enqueues a TTS task and returns immediately.
     """
-    task_id = str(uuid.uuid4())
-    request_items = [item.model_dump() for item in request.items]
+    text_items = [item.model_dump() for item in request.text]
+    speakers_count = len({item.voice for item in request.text})
 
     send_event(
-        settings.KAFKA_TOPIC_REQUESTS,
-        key=task_id,
+        settings.KAFKA_TOPIC_START,
+        key=request.id_podcast,
         event_data={
-            "task_id": task_id,
-            "status": "requested",
-            "items": request_items,
-            "timestamp": time.time()
-        }
+            "id_podcast": request.id_podcast,
+            "text": text_items,
+            "speakers_count": speakers_count,
+            "timestamp": time.time(),
+        },
     )
 
     celery_app.send_task(
         "generate_tts",
-        args=[request_items],
-        task_id=task_id
+        args=[request.id_podcast, text_items],
+        task_id=request.id_podcast,
     )
 
-    return TaskResponse(task_id=task_id)
+    return TaskResponse(id_podcast=request.id_podcast)
 
-@app.get("/api/tts/status/{task_id}")
-async def get_status(task_id: str):
-    """
-    Optional: get task execution status.
-    """
-    result = celery_app.AsyncResult(task_id)
-    if result.state == "PENDING":
-        return {"task_id": task_id, "status": "pending"}
-    elif result.state == "SUCCESS":
-        return {"task_id": task_id, "status": "completed"}
-    elif result.state == "FAILURE":
-        return {"task_id": task_id, "status": "failed", "error": str(result.info)}
-    else:
-        return {"task_id": task_id, "status": result.state.lower()}
 
-from fastapi.staticfiles import StaticFiles
-import os
-if os.path.exists(settings.AUDIO_DIR):
-    app.mount("/audio", StaticFiles(directory=settings.AUDIO_DIR), name="audio")

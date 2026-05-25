@@ -56,13 +56,23 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_AUDIO_KEY_PREFIX: ${S3_AUDIO_KEY_PREFIX:-}
       S3_PUBLIC_URL_BASE: ${S3_PUBLIC_URL_BASE:-}
+      OTEL_SERVICE_NAME: tts-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=tts,service.version=1.0.0,deployment.environment=${DEPLOYMENT_ENV:-dev}
     volumes:
       - ./audio:/app/audio
+    networks:
+      - default
+      - otel
 
   worker:
     build: .
     restart: unless-stopped
-    command: celery -A app.celery_app worker --loglevel=info -E --concurrency=1
+    command: opentelemetry-instrument celery -A app.celery_app worker --loglevel=info -E --concurrency=1
     depends_on:
       redis:
         condition: service_healthy
@@ -83,5 +93,21 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_AUDIO_KEY_PREFIX: ${S3_AUDIO_KEY_PREFIX:-}
       S3_PUBLIC_URL_BASE: ${S3_PUBLIC_URL_BASE:-}
+      OTEL_SERVICE_NAME: tts-worker
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=tts,service.version=1.0.0,deployment.environment=${DEPLOYMENT_ENV:-dev}
     volumes:
       - ./audio:/app/audio
+    networks:
+      - default
+      - otel
+
+networks:
+  default:
+  otel:
+    external: true
+    name: ot_collector_otel

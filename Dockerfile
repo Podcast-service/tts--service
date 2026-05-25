@@ -17,11 +17,9 @@ RUN pip install --index-url https://download.pytorch.org/whl/cpu \
         torch==2.2.2 torchaudio==2.2.2 \
     && pip install -r requirements.txt
 
-# Pre-download Silero model and config at build time so containers start instantly
-# and rebuilds don't re-fetch ~50MB on first request.
 RUN python -c "from silero_tts.silero_tts import SileroTTS; \
 SileroTTS(model_id=SileroTTS.get_latest_model('ru'), language='ru', speaker='aidar', sample_rate=48000, device='cpu')"
 
 COPY ./app /app/app
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["opentelemetry-instrument", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -12,3 +12,11 @@ numpy>=1.24.0,<2
 soundfile>=0.12.0
 phonemizer>=3.0.0
 gruut>=2.0.0
+
+opentelemetry-distro==0.48b0
+opentelemetry-exporter-otlp-proto-grpc==1.27.0
+opentelemetry-instrumentation-fastapi==0.48b0
+opentelemetry-instrumentation-celery==0.48b0
+opentelemetry-instrumentation-redis==0.48b0
+opentelemetry-instrumentation-botocore==0.48b0
+opentelemetry-instrumentation-logging==0.48b0

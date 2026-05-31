@@ -1,6 +1,6 @@
 from app.celery_app import celery_app
 from app.config import settings
-from app.kafka_producer import send_event
+from app.kafka_producer import send_event, iso_now
 from app.s3_uploader import upload_audio_file
 from silero_tts.silero_tts import SileroTTS
 import os
@@ -12,7 +12,6 @@ import shutil
 
 logger = logging.getLogger(__name__)
 
-# Per-process singleton model to avoid loading duplicated weights per voice.
 _tts_model = None
 _model_init_lock = threading.Lock()
 _model_use_lock = threading.Lock()
@@ -109,6 +108,14 @@ def get_tts_model():
     return _tts_model
 
 
+def get_wav_duration_seconds(path: str) -> int:
+    with wave.open(path, "rb") as f:
+        framerate = f.getframerate()
+        if framerate <= 0:
+            return 0
+        return int(round(f.getnframes() / framerate))
+
+
 def build_part_audio_path(id_podcast: str, part_index: int) -> str:
     return os.path.join(settings.AUDIO_DIR, f"{id_podcast}_part_{part_index}.wav")
 
@@ -153,7 +160,6 @@ def merge_wav_files(input_paths: list[str], output_path: str):
                     raise ValueError("Audio parts have incompatible WAV parameters")
 
                 while True:
-                    # Stream by chunks to avoid loading long segments into RAM at once.
                     chunk = source.readframes(8192)
                     if not chunk:
                         break
@@ -197,19 +203,33 @@ def generate_tts(id_podcast: str, text_items: list[dict]):
         merge_wav_files(generated_part_paths, audio_path)
         cleanup_audio_files(generated_part_paths)
 
+        send_event(
+            settings.KAFKA_TOPIC_MEDIA_UPLOAD,
+            key=id_podcast,
+            event_data={
+                "object_type": settings.MEDIA_OBJECT_TYPE,
+                "object_id": id_podcast,
+                "event": "start_upload",
+                "timestamp": iso_now(),
+            },
+        )
+
         audio_size_file = os.path.getsize(audio_path)
+        duration_seconds = get_wav_duration_seconds(audio_path)
         audio_url_file = upload_audio_file(audio_path, id_podcast)
         cleanup_audio_files([audio_path])
 
         send_event(
-            settings.KAFKA_TOPIC_MEDIA_UPLOADED,
+            settings.KAFKA_TOPIC_MEDIA_UPLOAD,
             key=id_podcast,
             event_data={
-                "id_podcast": id_podcast,
+                "object_type": settings.MEDIA_OBJECT_TYPE,
+                "object_id": id_podcast,
+                "event": "uploaded",
                 "audio_url_file": audio_url_file,
-                "audio_size_file": audio_size_file,
-                "timestamp": time.time(),
-                "add.transcipt": False,
+                "audio_file_size": audio_size_file,
+                "duration_seconds": duration_seconds,
+                "timestamp": iso_now(),
             },
         )
         logger.info(f"Podcast {id_podcast} uploaded to {audio_url_file}")
@@ -219,13 +239,12 @@ def generate_tts(id_podcast: str, text_items: list[dict]):
 
         logger.exception(f"Podcast {id_podcast} failed: {e}")
         send_event(
-            settings.KAFKA_TOPIC_FAILED,
+            settings.KAFKA_TOPIC_START,
             key=id_podcast,
             event_data={
-                "id_podcast": id_podcast,
-                "text": text_items,
+                "podcast_id": id_podcast,
                 "error": str(e),
-                "timestamp": time.time(),
+                "timestamp": iso_now(),
             },
         )
         raise

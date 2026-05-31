@@ -2,8 +2,7 @@ from fastapi import FastAPI, Body
 from app.models import TTSRequest, TaskResponse
 from app.celery_app import celery_app
 from app.config import settings
-from app.kafka_producer import send_event
-import time
+from app.kafka_producer import send_event, iso_now
 import os
 
 app = FastAPI(title="TTS Service", version="1.0.0")
@@ -55,16 +54,15 @@ async def generate_tts(
     enqueues a TTS task and returns immediately.
     """
     text_items = [item.model_dump() for item in request.text]
-    speakers_count = len({item.voice for item in request.text})
+    joined_content = " ".join(item.text for item in request.text)
 
     send_event(
         settings.KAFKA_TOPIC_START,
         key=request.id_podcast,
         event_data={
-            "id_podcast": request.id_podcast,
-            "text": text_items,
-            "speakers_count": speakers_count,
-            "timestamp": time.time(),
+            "podcast_id": request.id_podcast,
+            "content": joined_content,
+            "timestamp": iso_now(),
         },
     )
 

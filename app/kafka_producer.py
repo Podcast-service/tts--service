@@ -8,6 +8,10 @@ logger = logging.getLogger(__name__)
 
 _producer = None
 
+
+def iso_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
 def get_producer():
     global _producer
     if _producer is None:

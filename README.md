@@ -44,37 +44,54 @@ http://localhost:8000/docs
 
 ## Kafka события
 
-Три топика, ключ сообщения = `id_podcast`.
+Ключ сообщения = `id_podcast`.
 
 ### `tts.start` — задача принята
 
 ```
 {
-  "id_podcast" 
-  "text"
-  "speakers_count"
+  "podcast_id"
+  "content"
   "timestamp"
 }
 ```
 
-### `media.uploaded` — аудио готово и залито в S3
+При успешной генерации шлются два события: `media` и `media.upload`.
+
+### `media` — аудио готово и залито в S3
 
 ```
 {
-  "id_podcast"
+  "event"
+  "type"
+  "object_id"
+  "url"
+  "size"
+  "content_type"
+  "need_subtitle"
+  "uploaded_at"
+}
+```
+
+### `media.upload` — аудио готово и залито в S3
+
+```
+{
+  "object_type"
+  "object_id"
+  "event"
   "audio_url_file"
-  "audio_size_file"
   "timestamp"
-  "add.transcipt" 
 }
 ```
 
-### `tts.failed` 
+### `tts.failed` — ошибка генерации/загрузки
 
 ```
 {
-  "id_podcast"
-  "text"
+  "object_type"
+  "object_id"
+  "event"
   "error"
   "timestamp"
 }

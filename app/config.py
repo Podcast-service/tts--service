@@ -4,8 +4,11 @@ class Settings:
     REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
     KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
     KAFKA_TOPIC_START = os.getenv("KAFKA_TOPIC_START", "tts.start")
+    KAFKA_TOPIC_FAILED = os.getenv("KAFKA_TOPIC_FAILED", "tts.failed")
+    KAFKA_TOPIC_MEDIA_UPLOADED = os.getenv("KAFKA_TOPIC_MEDIA_UPLOADED", "media")
     KAFKA_TOPIC_MEDIA_UPLOAD = os.getenv("KAFKA_TOPIC_MEDIA_UPLOAD", "media.upload")
-    MEDIA_OBJECT_TYPE = os.getenv("MEDIA_OBJECT_TYPE", "podcast_file_url")
+    MEDIA_OBJECT_TYPE = os.getenv("MEDIA_OBJECT_TYPE", "podcast_file")
+    MEDIA_OBJECT_TYPE_URL = os.getenv("MEDIA_OBJECT_TYPE_URL", "podcast_file_url")
     AUDIO_DIR = os.getenv("AUDIO_DIR", "/app/audio")
     ALLOWED_VOICES = {"aidar", "baya", "kseniya", "xenia", "eugene"}
     SILERO_LANGUAGE = "ru"

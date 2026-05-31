@@ -108,14 +108,6 @@ def get_tts_model():
     return _tts_model
 
 
-def get_wav_duration_seconds(path: str) -> int:
-    with wave.open(path, "rb") as f:
-        framerate = f.getframerate()
-        if framerate <= 0:
-            return 0
-        return int(round(f.getnframes() / framerate))
-
-
 def build_part_audio_path(id_podcast: str, part_index: int) -> str:
     return os.path.join(settings.AUDIO_DIR, f"{id_podcast}_part_{part_index}.wav")
 
@@ -203,32 +195,33 @@ def generate_tts(id_podcast: str, text_items: list[dict]):
         merge_wav_files(generated_part_paths, audio_path)
         cleanup_audio_files(generated_part_paths)
 
-        send_event(
-            settings.KAFKA_TOPIC_MEDIA_UPLOAD,
-            key=id_podcast,
-            event_data={
-                "object_type": settings.MEDIA_OBJECT_TYPE,
-                "object_id": id_podcast,
-                "event": "start_upload",
-                "timestamp": iso_now(),
-            },
-        )
-
         audio_size_file = os.path.getsize(audio_path)
-        duration_seconds = get_wav_duration_seconds(audio_path)
         audio_url_file = upload_audio_file(audio_path, id_podcast)
         cleanup_audio_files([audio_path])
 
         send_event(
+            settings.KAFKA_TOPIC_MEDIA_UPLOADED,
+            key=id_podcast,
+            event_data={
+                "event": "uploaded",
+                "type": settings.MEDIA_OBJECT_TYPE,
+                "object_id": id_podcast,
+                "url": audio_url_file,
+                "size": audio_size_file,
+                "content_type": "audio/wav",
+                "need_subtitle": False,
+                "uploaded_at": iso_now(),
+            },
+        )
+
+        send_event(
             settings.KAFKA_TOPIC_MEDIA_UPLOAD,
             key=id_podcast,
             event_data={
-                "object_type": settings.MEDIA_OBJECT_TYPE,
+                "object_type": settings.MEDIA_OBJECT_TYPE_URL,
                 "object_id": id_podcast,
                 "event": "uploaded",
                 "audio_url_file": audio_url_file,
-                "audio_file_size": audio_size_file,
-                "duration_seconds": duration_seconds,
                 "timestamp": iso_now(),
             },
         )
@@ -239,10 +232,12 @@ def generate_tts(id_podcast: str, text_items: list[dict]):
 
         logger.exception(f"Podcast {id_podcast} failed: {e}")
         send_event(
-            settings.KAFKA_TOPIC_START,
+            settings.KAFKA_TOPIC_FAILED,
             key=id_podcast,
             event_data={
-                "podcast_id": id_podcast,
+                "object_type": settings.MEDIA_OBJECT_TYPE_URL,
+                "object_id": id_podcast,
+                "event": "error",
                 "error": str(e),
                 "timestamp": iso_now(),
             },

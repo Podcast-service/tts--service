@@ -73,5 +73,3 @@ async def generate_tts(
     )
 
     return TaskResponse(id_podcast=request.id_podcast)
-
-

@@ -27,11 +27,7 @@ def build_audio_key(id_podcast: str) -> str:
 
 
 def build_public_url(key: str) -> str:
-    if settings.S3_PUBLIC_URL_BASE:
-        return f"{settings.S3_PUBLIC_URL_BASE.rstrip('/')}/{key}"
-    if settings.S3_ENDPOINT_URL:
-        return f"{settings.S3_ENDPOINT_URL.rstrip('/')}/{settings.S3_BUCKET}/{key}"
-    return f"https://{settings.S3_BUCKET}.s3.{settings.S3_REGION}.amazonaws.com/{key}"
+    return f"s3://{settings.S3_BUCKET}/{key}"
 
 
 def upload_audio_file(local_path: str, id_podcast: str) -> str:

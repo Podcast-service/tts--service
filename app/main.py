@@ -54,14 +54,13 @@ async def generate_tts(
     enqueues a TTS task and returns immediately.
     """
     text_items = [item.model_dump() for item in request.text]
-    joined_content = " ".join(item.text for item in request.text)
 
     send_event(
         settings.KAFKA_TOPIC_START,
         key=request.id_podcast,
         event_data={
             "podcast_id": request.id_podcast,
-            "content": joined_content,
+            "content": text_items,
             "timestamp": iso_now(),
         },
     )

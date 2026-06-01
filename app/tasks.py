@@ -68,7 +68,7 @@ def _load_model():
         language=settings.SILERO_LANGUAGE,
         speaker=settings.SILERO_DEFAULT_VOICE,
         sample_rate=48000,
-        device='cpu'
+        device=settings.TTS_DEVICE
     )
 
 

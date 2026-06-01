@@ -204,7 +204,7 @@ def generate_tts(id_podcast: str, text_items: list[dict]):
             key=id_podcast,
             event_data={
                 "event": "uploaded",
-                "type": settings.MEDIA_OBJECT_TYPE,
+                "type": "podcast_file",
                 "object_id": id_podcast,
                 "url": audio_url_file,
                 "size": audio_size_file,
@@ -235,7 +235,7 @@ def generate_tts(id_podcast: str, text_items: list[dict]):
             settings.KAFKA_TOPIC_FAILED,
             key=id_podcast,
             event_data={
-                "object_type": "podcast_file",
+                "object_type": settings.MEDIA_OBJECT_TYPE_URL,
                 "object_id": id_podcast,
                 "event": "error",
                 "error": str(e),

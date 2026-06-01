@@ -1,0 +1,34 @@
+# GPU-версия tts-сервиса (Silero на CUDA) для отдельного GPU-сервера.
+# Запускать контейнер с доступом к GPU (--gpus all / deploy.resources).
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       git python3 python3-venv python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/local/bin/python
+
+WORKDIR /app
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+COPY requirements.txt .
+
+# CUDA-сборка torch (cu121) вместо CPU-колеса.
+# Сначала обновляем pip (системный pip 22.x на ubuntu 22.04 староват), затем ставим пакеты.
+RUN python -m pip install --upgrade pip \
+    && pip install --index-url https://download.pytorch.org/whl/cu121 \
+        torch==2.2.2 torchaudio==2.2.2 \
+    && pip install -r requirements.txt
+
+# Прогрев модели Silero на этапе сборки (на CPU — на билд-хосте GPU может не быть).
+RUN python -c "from silero_tts.silero_tts import SileroTTS; \
+SileroTTS(model_id=SileroTTS.get_latest_model('ru'), language='ru', speaker='aidar', sample_rate=48000, device='cpu')"
+
+COPY ./app /app/app
+
+CMD ["opentelemetry-instrument", "celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-E", "--concurrency=1"]

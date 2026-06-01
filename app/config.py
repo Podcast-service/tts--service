@@ -13,6 +13,7 @@ class Settings:
     ALLOWED_VOICES = {"aidar", "baya", "kseniya", "xenia", "eugene"}
     SILERO_LANGUAGE = "ru"
     SILERO_DEFAULT_VOICE = os.getenv("SILERO_DEFAULT_VOICE", "aidar")
+    TTS_DEVICE = os.getenv("TTS_DEVICE", "cpu")
 
     CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "1"))
     CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "20"))
